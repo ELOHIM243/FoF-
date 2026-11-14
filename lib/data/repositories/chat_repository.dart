@@ -5,27 +5,10 @@ import '../models/message.dart';
 class ChatRepository {
   final _supabase = Supabase.instance.client;
 
-  // Récupérer les conversations depuis Supabase (pour l'instant on crée une fausse pour tester)
+  // Récupérer les conversations
   Future<List<Conversation>> getConversations() async {
-    // On va chercher les conversations dans la table 'conversations'
-    final response = await _supabase.from('conversations').select();
+    final response = await _supabase.from('conversations').select().order('created_at', ascending: false);
     
-    if (response.isEmpty) {
-      // Si la table est vide, on crée une conversation de test
-      final newConv = await _supabase.from('conversations').insert({
-        'name': 'Discussion Générale',
-        'is_group': false,
-      }).select().single();
-      
-      return [Conversation(
-        id: newConv['id'].toString(),
-        name: newConv['name'],
-        isGroup: false,
-        isOnline: false,
-        unreadCount: 0,
-      )];
-    }
-
     return response.map((row) => Conversation(
       id: row['id'].toString(),
       name: row['name'] ?? 'Inconnu',
@@ -35,7 +18,23 @@ class ChatRepository {
     )).toList();
   }
 
-  // Récupérer les messages depuis Supabase
+  // Créer un contact (conversation simple)
+  Future<void> createContact(String name) async {
+    await _supabase.from('conversations').insert({
+      'name': name,
+      'is_group': false,
+    });
+  }
+
+  // Créer un groupe
+  Future<void> createGroup(String name) async {
+    await _supabase.from('conversations').insert({
+      'name': name,
+      'is_group': true,
+    });
+  }
+
+  // Récupérer les messages
   Future<List<Message>> getMessages(String convId) async {
     final response = await _supabase
         .from('messages')
@@ -48,20 +47,18 @@ class ChatRepository {
       text: row['content'] ?? '',
       createdAt: DateTime.parse(row['created_at']),
       status: MessageStatus.read,
-      isSentByMe: row['sender_id'] == 'moi', // À remplacer par le vrai ID utilisateur
+      isSentByMe: row['sender_id'] == 'moi',
     )).toList();
   }
 
-  // Envoyer un message à Supabase (il sera sauvegardé sur internet !)
+  // Envoyer un message
   Future<void> sendMessage(String convId, String text) async {
     await _supabase.from('messages').insert({
       'conversation_id': convId,
       'content': text,
-      'sender_id': 'moi', // À remplacer par le vrai ID utilisateur
+      'sender_id': 'moi',
     });
   }
 
-  Future<void> markAsRead(String convId) async {
-    // Pas besoin pour l'instant
-  }
+  Future<void> markAsRead(String convId) async {}
 }
