@@ -13,6 +13,17 @@ class ProfileScreen extends StatefulWidget {
 class _ProfileScreenState extends State<ProfileScreen> {
   final _ctrl = TextEditingController();
 
+  Future<void> _submit() async {
+    final name = _ctrl.text.trim();
+    if (name.isEmpty) return; // Ne fait rien si le champ est vide
+    
+    // On lance la connexion
+    await context.read<AppState>().login(name, widget.phone);
+    
+    // Petite pause pour laisser Flutter mettre à jour l'écran
+    await Future.delayed(const Duration(milliseconds: 100));
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
@@ -24,10 +35,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
           children: [
             Text(l10n.profileTitle, style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: 20),
-            TextField(controller: _ctrl, decoration: InputDecoration(labelText: l10n.profileNameLabel)),
+            TextField(
+              controller: _ctrl, 
+              decoration: InputDecoration(labelText: l10n.profileNameLabel),
+            ),
             const SizedBox(height: 20),
             ElevatedButton(
-              onPressed: () => context.read<AppState>().login(_ctrl.text, widget.phone),
+              onPressed: _submit, // On utilise notre nouvelle fonction
               child: Text(l10n.profileSubmit),
             )
           ],
