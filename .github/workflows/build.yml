@@ -23,10 +23,15 @@ jobs:
           flutter pub get
           flutter gen-l10n
           
-      - name: Configure Android SDK and Build APK
+      - name: Fix Gradle Configuration and Build APK
         run: |
           cd fof_app/android
-          # Force une version récente du SDK Android (API 34)
+          
+          # Injection de la configuration Flutter pour les plugins modernes
+          sed -i '/ext.flutter =/d' build.gradle
+          echo "ext.flutter = [compileSdkVersion: 34, minSdkVersion: 21, targetSdkVersion: 34]" >> build.gradle
+          
+          # Forcer les versions dans le module app
           sed -i 's/compileSdkVersion .*/compileSdkVersion 34/' app/build.gradle
           sed -i 's/minSdkVersion .*/minSdkVersion 21/' app/build.gradle
           sed -i 's/targetSdkVersion .*/targetSdkVersion 34/' app/build.gradle
