@@ -1,25 +1,57 @@
-import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import 'app.dart';
-import 'core/providers/app_state.dart';
-import 'core/storage/local_storage.dart';
-import 'core/supabase_config.dart';
+name: Build FOF APK
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  
-  await Supabase.initialize(
-    url: SupabaseConfig.supabaseUrl,
-    anonKey: SupabaseConfig.anonKey,
-  );
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
 
-  final prefs = await SharedPreferences.getInstance();
-  runApp(
-    ChangeNotifierProvider(
-      create: (_) => AppState(LocalStorage(prefs))..init(),
-      child: const FofApp(),
-    ),
-  );
-}
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Java
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.19.0'
+          channel: 'stable'
+          
+      - name: Create Flutter project
+        run: flutter create fof_app
+        
+      - name: Copy Code
+        run: |
+          cp -r lib pubspec.yaml l10n.yaml fof_app/
+          
+      - name: Install Dependencies
+        run: |
+          cd fof_app
+          flutter pub get
+          flutter gen-l10n
+          
+      - name: Fix Gradle Properties
+        run: |
+          cd fof_app/android
+          # On force la version du SDK Android pour éviter les bugs avec Supabase
+          sed -i 's/compileSdkVersion .*/compileSdkVersion 34/' app/build.gradle
+          sed -i 's/minSdkVersion .*/minSdkVersion 21/' app/build.gradle
+          sed -i 's/targetSdkVersion .*/targetSdkVersion 34/' app/build.gradle
+          # On ajoute la config Flutter globale
+          echo "ext.flutter = [compileSdkVersion: 34, minSdkVersion: 21, targetSdkVersion: 34]" >> build.gradle
+          
+      - name: Build APK
+        run: |
+          cd fof_app
+          flutter build apk --debug
+          
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: fof-apk
+          path: fof_app/build/app/outputs/flutter-apk/app-debug.apk
