@@ -21,13 +21,50 @@ class _ChatsScreenState extends State<ChatsScreen> {
   @override
   void initState() {
     super.initState();
-    _repo = ChatRepository(context.read<AppState>().storage);
+    _repo = ChatRepository();
     _load();
   }
 
   Future<void> _load() async {
-    await Future.delayed(const Duration(milliseconds: 500));
+    setState(() => _loading = true);
+    await Future.delayed(const Duration(milliseconds: 300)); // Petit délai pour l'effet
     if (mounted) setState(() => _loading = false);
+  }
+
+  // Fonction pour afficher la fenêtre de création
+  void _showCreateDialog({required bool isGroup}) {
+    final controller = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(isGroup ? 'Nouveau Groupe' : 'Nouveau Contact'),
+        content: TextField(
+          controller: controller,
+          decoration: InputDecoration(hintText: isGroup ? 'Nom du groupe' : 'Nom du contact'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final name = controller.text.trim();
+              if (name.isNotEmpty) {
+                if (isGroup) {
+                  await _repo.createGroup(name);
+                } else {
+                  await _repo.createContact(name);
+                }
+                if (context.mounted) Navigator.pop(context);
+                _load(); // Recharger la liste
+              }
+            },
+            child: const Text('Créer'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -36,33 +73,55 @@ class _ChatsScreenState extends State<ChatsScreen> {
     final l10n = context.l10n;
 
     return Scaffold(
-      appBar: AppBar(title: Text(l10n.chatsTitle)),
-      body: _loading ? const Center(child: CircularProgressIndicator()) : FutureBuilder(
-        future: _repo.getConversations(),
-        builder: (context, snap) {
-          if (!snap.hasData) return const SizedBox();
-          final convs = snap.data!;
-          return ListView.builder(
-            itemCount: convs.length,
-            itemBuilder: (context, i) {
-              final c = convs[i];
-              return ListTile(
-                leading: CircleAvatar(backgroundColor: c.isGroup ? AppColors.secondary : AppColors.primary, child: Text(c.initial, style: const TextStyle(color: Colors.white))),
-                title: Text(c.name),
-                subtitle: Text(c.lastMessage?.text ?? ''),
-                trailing: c.unreadCount > 0 ? Badge(label: Text(c.unreadCount.toString())) : null,
-                onTap: () async {
-                  await _repo.markAsRead(c.id);
-                  if (context.mounted) {
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(conversation: c, repo: _repo)));
-                  }
-                  setState(() {});
-                },
-              );
-            },
-          );
-        },
+      appBar: AppBar(
+        title: Text(l10n.chatsTitle),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.person_add),
+            tooltip: 'Ajouter un contact',
+            onPressed: () => _showCreateDialog(isGroup: false),
+          ),
+          IconButton(
+            icon: const Icon(Icons.group_add),
+            tooltip: 'Créer un groupe',
+            onPressed: () => _showCreateDialog(isGroup: true),
+          ),
+        ],
       ),
+      body: _loading 
+          ? const Center(child: CircularProgressIndicator()) 
+          : FutureBuilder(
+              future: _repo.getConversations(),
+              builder: (context, snap) {
+                if (snap.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (snap.hasError) {
+                  return Center(child: Text('Erreur: ${snap.error}'));
+                }
+                final convs = snap.data ?? [];
+                if (convs.isEmpty) {
+                  return const Center(child: Text('Aucune conversation. Ajoutez-en une !'));
+                }
+                return ListView.builder(
+                  itemCount: convs.length,
+                  itemBuilder: (context, i) {
+                    final c = convs[i];
+                    return ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: c.isGroup ? AppColors.secondary : AppColors.primary,
+                        child: Icon(c.isGroup ? Icons.group : Icons.person, color: Colors.white),
+                      ),
+                      title: Text(c.name),
+                      subtitle: Text(c.isGroup ? 'Groupe' : 'Contact'),
+                      onTap: () {
+                        Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(conversation: c, repo: _repo)));
+                      },
+                    );
+                  },
+                );
+              },
+            ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
         onDestinationSelected: (i) => setState(() => _tab = i),
