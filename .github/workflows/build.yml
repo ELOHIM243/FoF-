@@ -1,40 +1,25 @@
-name: Build FOF APK
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'app.dart';
+import 'core/providers/app_state.dart';
+import 'core/storage/local_storage.dart';
+import 'core/supabase_config.dart';
 
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  
+  await Supabase.initialize(
+    url: SupabaseConfig.supabaseUrl,
+    anonKey: SupabaseConfig.anonKey,
+  );
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.22.x'
-          channel: 'stable'
-          
-      - name: Create Flutter project and copy code
-        run: |
-          flutter create fof_app
-          cp -r lib pubspec.yaml l10n.yaml fof_app/
-          cd fof_app
-          flutter pub get
-          flutter gen-l10n
-          
-      - name: Configure Android SDK and Build APK
-        run: |
-          cd fof_app/android
-          sed -i 's/compileSdkVersion .*/compileSdkVersion 34/' app/build.gradle
-          sed -i 's/minSdkVersion .*/minSdkVersion 21/' app/build.gradle
-          sed -i 's/targetSdkVersion .*/targetSdkVersion 34/' app/build.gradle
-          
-          cd ..
-          flutter build apk --debug
-          
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: fof-apk
-          path: fof_app/build/app/outputs/flutter-apk/app-debug.apk
+  final prefs = await SharedPreferences.getInstance();
+  runApp(
+    ChangeNotifierProvider(
+      create: (_) => AppState(LocalStorage(prefs))..init(),
+      child: const FofApp(),
+    ),
+  );
+}
