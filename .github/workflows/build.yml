@@ -12,7 +12,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.x'
+          flutter-version: '3.22.x'
           channel: 'stable'
           
       - name: Create Flutter project and copy code
@@ -23,15 +23,9 @@ jobs:
           flutter pub get
           flutter gen-l10n
           
-      - name: Fix Gradle Configuration and Build APK
+      - name: Configure Android SDK and Build APK
         run: |
           cd fof_app/android
-          
-          # Injection de la configuration Flutter pour les plugins modernes
-          sed -i '/ext.flutter =/d' build.gradle
-          echo "ext.flutter = [compileSdkVersion: 34, minSdkVersion: 21, targetSdkVersion: 34]" >> build.gradle
-          
-          # Forcer les versions dans le module app
           sed -i 's/compileSdkVersion .*/compileSdkVersion 34/' app/build.gradle
           sed -i 's/minSdkVersion .*/minSdkVersion 21/' app/build.gradle
           sed -i 's/targetSdkVersion .*/targetSdkVersion 34/' app/build.gradle
