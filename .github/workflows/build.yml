@@ -14,10 +14,22 @@ jobs:
         with:
           flutter-version: '3.24.x'
           channel: 'stable'
-      - run: flutter pub get
-      - run: flutter gen-l10n
-      - run: flutter build apk --debug
-      - uses: actions/upload-artifact@v4
+          
+      - name: Create Flutter project and copy code
+        run: |
+          flutter create fof_app
+          cp -r lib pubspec.yaml l10n.yaml fof_app/
+          cd fof_app
+          flutter pub get
+          flutter gen-l10n
+          
+      - name: Build APK
+        run: |
+          cd fof_app
+          flutter build apk --debug
+          
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
         with:
           name: fof-apk
-          path: build/app/outputs/flutter-apk/app-debug.apk
+          path: fof_app/build/app/outputs/flutter-apk/app-debug.apk
