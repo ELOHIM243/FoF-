@@ -15,12 +15,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _submit() async {
     final name = _ctrl.text.trim();
-    if (name.isEmpty) return; // Ne fait rien si le champ est vide
+    if (name.isEmpty) return;
     
-    // On lance la connexion
+    // Connexion
     await context.read<AppState>().login(name, widget.phone);
     
-    // Petite pause pour laisser Flutter mettre à jour l'écran
+    // Pause pour éviter le bug de rafraîchissement
     await Future.delayed(const Duration(milliseconds: 100));
   }
 
@@ -41,7 +41,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
             const SizedBox(height: 20),
             ElevatedButton(
-              onPressed: _submit, // On utilise notre nouvelle fonction
+              onPressed: _submit,
               child: Text(l10n.profileSubmit),
             )
           ],
