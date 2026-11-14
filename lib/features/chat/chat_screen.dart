@@ -1,76 +1,74 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../../core/l10n/l10n_ext.dart';
+import '../../core/providers/app_state.dart';
 import '../../core/theme/app_theme.dart';
-import '../../data/models/conversation.dart';
-import '../../data/models/message.dart';
 import '../../data/repositories/chat_repository.dart';
+import '../chat/chat_screen.dart';
+import '../settings/settings_screen.dart';
 
-class ChatScreen extends StatefulWidget {
-  final Conversation conversation;
-  final ChatRepository repo;
-  const ChatScreen({super.key, required this.conversation, required this.repo});
+class ChatsScreen extends StatefulWidget {
+  const ChatsScreen({super.key});
   @override
-  State<ChatScreen> createState() => _ChatScreenState();
+  State<ChatsScreen> createState() => _ChatsScreenState();
 }
 
-class _ChatScreenState extends State<ChatScreen> {
-  final _ctrl = TextEditingController();
-  List<Message> _msgs = [];
+class _ChatsScreenState extends State<ChatsScreen> {
+  int _tab = 0;
+  late ChatRepository _repo;
+  bool _loading = true;
 
   @override
   void initState() {
     super.initState();
+    _repo = ChatRepository(context.read<AppState>().storage);
     _load();
   }
 
   Future<void> _load() async {
-    final m = await widget.repo.getMessages(widget.conversation.id);
-    if (mounted) setState(() => _msgs = m);
-  }
-
-  Future<void> _send() async {
-    if (_ctrl.text.trim().isEmpty) return;
-    await widget.repo.sendMessage(widget.conversation.id, _ctrl.text.trim());
-    _ctrl.clear();
-    _load();
+    await Future.delayed(const Duration(milliseconds: 500));
+    if (mounted) setState(() => _loading = false);
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_tab == 1) return const SettingsScreen();
+    final l10n = context.l10n;
+
     return Scaffold(
-      appBar: AppBar(title: Text(widget.conversation.name)),
-      body: Column(
-        children: [
-          Expanded(
-            child: ListView.builder(
-              itemCount: _msgs.length,
-              itemBuilder: (context, i) {
-                final m = _msgs[i];
-                final isMe = m.isSentByMe;
-                return Align(
-                  alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: isMe ? AppColors.primary : Colors.grey[200],
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Text(m.text, style: TextStyle(color: isMe ? Colors.white : Colors.black)),
-                  ),
-                );
-              },
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.all(8.0),
-            child: Row(
-              children: [
-                Expanded(child: TextField(controller: _ctrl, decoration: InputDecoration(hintText: context.l10n.chatInputPlaceholder, border: const OutlineInputBorder()))),
-                IconButton(icon: const Icon(Icons.send, color: AppColors.primary), onPressed: _send),
-              ],
-            ),
-          )
+      appBar: AppBar(title: Text(l10n.chatsTitle)),
+      body: _loading ? const Center(child: CircularProgressIndicator()) : FutureBuilder(
+        future: _repo.getConversations(),
+        builder: (context, snap) {
+          if (!snap.hasData) return const SizedBox();
+          final convs = snap.data!;
+          return ListView.builder(
+            itemCount: convs.length,
+            itemBuilder: (context, i) {
+              final c = convs[i];
+              return ListTile(
+                leading: CircleAvatar(backgroundColor: c.isGroup ? AppColors.secondary : AppColors.primary, child: Text(c.initial, style: const TextStyle(color: Colors.white))),
+                title: Text(c.name),
+                subtitle: Text(c.lastMessage?.text ?? ''),
+                trailing: c.unreadCount > 0 ? Badge(label: Text(c.unreadCount.toString())) : null,
+                onTap: () async {
+                  await _repo.markAsRead(c.id);
+                  if (context.mounted) {
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(conversation: c, repo: _repo)));
+                  }
+                  setState(() {});
+                },
+              );
+            },
+          );
+        },
+      ),
+      bottomNavigationBar: NavigationBar(
+        selectedIndex: _tab,
+        onDestinationSelected: (i) => setState(() => _tab = i),
+        destinations: [
+          NavigationDestination(icon: const Icon(Icons.chat), label: l10n.chatsTabChats),
+          NavigationDestination(icon: const Icon(Icons.settings), label: l10n.chatsTabSettings),
         ],
       ),
     );
