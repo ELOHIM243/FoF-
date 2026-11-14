@@ -1,12 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app.dart';
 import 'core/providers/app_state.dart';
 import 'core/storage/local_storage.dart';
+import 'core/supabase_config.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  
+  // Initialisation de la connexion au serveur Supabase
+  await Supabase.initialize(
+    url: SupabaseConfig.supabaseUrl,
+    anonKey: SupabaseConfig.anonKey,
+  );
+
   final prefs = await SharedPreferences.getInstance();
   runApp(
     ChangeNotifierProvider(
