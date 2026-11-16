@@ -10,48 +10,53 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Setup Java
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
 
-      - uses: subosito/flutter-action@v2
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.19.0'
+          flutter-version: '3.22.0'
           channel: 'stable'
-          
+          cache: true
+
       - name: Create Flutter project
         run: flutter create fof_app
-        
-      - name: Copy Code
+
+      - name: Copy code and resources
         run: |
           cp -r lib pubspec.yaml l10n.yaml fof_app/
-          
-      - name: Install Dependencies
+          # Copie les dossiers optionnels s'ils existent
+          for dir in assets fonts; do
+            if [ -d "$dir" ]; then cp -r "$dir" fof_app/; fi
+          done
+
+      - name: Install dependencies
+        working-directory: fof_app
         run: |
-          cd fof_app
           flutter pub get
           flutter gen-l10n
-          
-      - name: Fix Gradle Properties
+
+      - name: Force Android SDK versions
+        working-directory: fof_app/android/app
         run: |
-          cd fof_app/android
-          # On force la version du SDK Android pour éviter les bugs avec Supabase
-          sed -i 's/compileSdkVersion .*/compileSdkVersion 34/' app/build.gradle
-          sed -i 's/minSdkVersion .*/minSdkVersion 21/' app/build.gradle
-          sed -i 's/targetSdkVersion .*/targetSdkVersion 34/' app/build.gradle
-          # On ajoute la config Flutter globale
-          echo "ext.flutter = [compileSdkVersion: 34, minSdkVersion: 21, targetSdkVersion: 34]" >> build.gradle
-          
+          sed -i -E 's/compileSdk(Version)?[ =]+flutter\.compileSdkVersion/compileSdkVersion 34/' build.gradle
+          sed -i -E 's/minSdk(Version)?[ =]+flutter\.minSdkVersion/minSdkVersion 21/' build.gradle
+          sed -i -E 's/targetSdk(Version)?[ =]+flutter\.targetSdkVersion/targetSdkVersion 34/' build.gradle
+          echo "--- Vérification ---"
+          grep -nE "compileSdk|minSdk|targetSdk" build.gradle
+
       - name: Build APK
-        run: |
-          cd fof_app
-          flutter build apk --debug
-          
+        working-directory: fof_app
+        run: flutter build apk --debug
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: fof-apk
           path: fof_app/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
