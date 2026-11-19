@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../../core/l10n/l10n_ext.dart';
 import '../../core/providers/app_state.dart';
 import 'rules_screen.dart';
+import 'moderation_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
@@ -40,6 +41,20 @@ class SettingsScreen extends StatelessWidget {
             ),
           ),
           const Divider(),
+          ListTile(
+            leading: const Icon(Icons.notifications_active_outlined),
+            title: const Text('Alertes et avertissements'),
+            subtitle: const Text('Consulter les alertes et les recours'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const ModerationScreen(),
+                ),
+              );
+            },
+          ),
           ListTile(
             leading: const Icon(Icons.gavel),
             title: const Text('Règles de la communauté'),
