@@ -113,3 +113,4 @@ class ChatRepository {
     // À implémenter après la création du système de lecture.
   }
 }
+ 
