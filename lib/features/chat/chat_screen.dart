@@ -1,114 +1,336 @@
 
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter/material.dart';
 
-import '../models/conversation.dart';
-import '../models/message.dart';
+import '../../data/models/conversation.dart';
+import '../../data/models/message.dart';
+import '../../data/repositories/chat_repository.dart';
 
-class ChatRepository {
-  final SupabaseClient _supabase = Supabase.instance.client;
+class ChatScreen extends StatefulWidget {
+  final Conversation conversation;
+  final ChatRepository repo;
 
-  String? get _currentUserId {
-    return _supabase.auth.currentUser?.id;
+  const ChatScreen({
+    super.key,
+    required this.conversation,
+    required this.repo,
+  });
+
+  @override
+  State<ChatScreen> createState() => _ChatScreenState();
+}
+
+class _ChatScreenState extends State<ChatScreen> {
+  final TextEditingController _messageController =
+      TextEditingController();
+
+  final ScrollController _scrollController = ScrollController();
+
+  late Future<List<Message>> _messagesFuture;
+
+  bool _sending = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadMessages();
   }
 
-  // Récupérer les conversations
-  Future<List<Conversation>> getConversations() async {
-    final response = await _supabase
-        .from('conversations')
-        .select()
-        .order('created_at', ascending: false);
+  void _loadMessages() {
+    _messagesFuture =
+        widget.repo.getMessages(widget.conversation.id);
+  }
 
-    return response.map((row) {
-      return Conversation(
-        id: row['id'].toString(),
-        name: row['name']?.toString() ?? 'Inconnu',
-        isGroup: row['is_group'] == true,
-        isOnline: false,
-        unreadCount: 0,
+  Future<void> _refreshMessages() async {
+    setState(_loadMessages);
+    await _messagesFuture;
+  }
+
+  Future<void> _sendMessage() async {
+    final text = _messageController.text.trim();
+
+    if (text.isEmpty || _sending) return;
+
+    setState(() => _sending = true);
+
+    try {
+      await widget.repo.sendMessage(
+        widget.conversation.id,
+        text,
       );
-    }).toList();
-  }
 
-  // Créer un contact
-  Future<void> createContact(String name) async {
-    final cleanName = name.trim();
+      _messageController.clear();
 
-    if (cleanName.isEmpty) {
-      throw ArgumentError('Le nom du contact est obligatoire.');
-    }
+      if (!mounted) return;
 
-    await _supabase.from('conversations').insert({
-      'name': cleanName,
-      'is_group': false,
-    });
-  }
+      setState(_loadMessages);
 
-  // Créer un groupe
-  Future<void> createGroup(String name) async {
-    final cleanName = name.trim();
+      await _messagesFuture;
 
-    if (cleanName.isEmpty) {
-      throw ArgumentError('Le nom du groupe est obligatoire.');
-    }
+      if (!mounted) return;
 
-    await _supabase.from('conversations').insert({
-      'name': cleanName,
-      'is_group': true,
-    });
-  }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_scrollController.hasClients) {
+          _scrollController.animateTo(
+            _scrollController.position.maxScrollExtent,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeOut,
+          );
+        }
+      });
+    } catch (error) {
+      if (!mounted) return;
 
-  // Récupérer les messages
-  Future<List<Message>> getMessages(String convId) async {
-    final response = await _supabase
-        .from('messages')
-        .select()
-        .eq('conversation_id', convId)
-        .order('created_at', ascending: true);
-
-    final userId = _currentUserId;
-
-    return response.map((row) {
-      return Message(
-        id: row['id'].toString(),
-        text: row['content']?.toString() ?? '',
-        createdAt: DateTime.parse(
-          row['created_at'].toString(),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Impossible d’envoyer le message : $error'),
         ),
-        status: MessageStatus.sent,
-        isSentByMe: userId != null &&
-            row['sender_id']?.toString() == userId,
       );
-    }).toList();
+    } finally {
+      if (mounted) {
+        setState(() => _sending = false);
+      }
+    }
   }
 
-  // Envoyer un message
-  Future<void> sendMessage(
-    String convId,
-    String text,
-  ) async {
-    final userId = _currentUserId;
-
-    if (userId == null) {
-      throw StateError(
-        'Connexion Supabase obligatoire pour envoyer un message.',
-      );
-    }
-
-    final cleanText = text.trim();
-
-    if (cleanText.isEmpty) {
-      throw ArgumentError('Le message ne peut pas être vide.');
-    }
-
-    await _supabase.from('messages').insert({
-      'conversation_id': convId,
-      'content': cleanText,
-      'sender_id': userId,
-    });
+  String _formatTime(DateTime date) {
+    final hour = date.hour.toString().padLeft(2, '0');
+    final minute = date.minute.toString().padLeft(2, '0');
+    return '$hour:$minute';
   }
 
-  // Accusés de lecture
-  Future<void> markAsRead(String convId) async {
-    // À implémenter avec une table de lecture dédiée.
+  Widget _buildMessage(Message message) {
+    final isMine = message.isSentByMe;
+
+    return Align(
+      alignment:
+          isMine ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.of(context).size.width * 0.78,
+        ),
+        margin: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 5,
+        ),
+        padding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 10,
+        ),
+        decoration: BoxDecoration(
+          color: isMine
+              ? Theme.of(context).colorScheme.primary
+              : Theme.of(context).colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                message.text,
+                style: TextStyle(
+                  color: isMine
+                      ? Colors.white
+                      : Theme.of(context).colorScheme.onSurface,
+                  fontSize: 15,
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              _formatTime(message.createdAt),
+              style: TextStyle(
+                fontSize: 10,
+                color: isMine
+                    ? Colors.white70
+                    : Theme.of(context)
+                        .colorScheme
+                        .onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildMessages() {
+    return FutureBuilder<List<Message>>(
+      future: _messagesFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(),
+          );
+        }
+
+        if (snapshot.hasError) {
+          return Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.error_outline, size: 45),
+                const SizedBox(height: 12),
+                const Text('Impossible de charger les messages.'),
+                const SizedBox(height: 12),
+                FilledButton(
+                  onPressed: () {
+                    setState(_loadMessages);
+                  },
+                  child: const Text('Réessayer'),
+                ),
+              ],
+            ),
+          );
+        }
+
+        final messages = snapshot.data ?? [];
+
+        if (messages.isEmpty) {
+          return RefreshIndicator(
+            onRefresh: _refreshMessages,
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: const [
+                SizedBox(height: 180),
+                Icon(
+                  Icons.chat_bubble_outline,
+                  size: 55,
+                  color: Colors.grey,
+                ),
+                SizedBox(height: 12),
+                Center(
+                  child: Text('Aucun message pour le moment.'),
+                ),
+                SizedBox(height: 8),
+                Center(
+                  child: Text('Envoyez le premier message.'),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return RefreshIndicator(
+          onRefresh: _refreshMessages,
+          child: ListView.builder(
+            controller: _scrollController,
+            physics: const AlwaysScrollableScrollPhysics(),
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            itemCount: messages.length,
+            itemBuilder: (context, index) {
+              return _buildMessage(messages[index]);
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  @override
+  void dispose() {
+    _messageController.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Row(
+          children: [
+            CircleAvatar(
+              child: Text(widget.conversation.initial),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.conversation.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    widget.conversation.isGroup
+                        ? 'Groupe FOF'
+                        : 'Conversation',
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodySmall,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      body: Column(
+        children: [
+          Expanded(child: _buildMessages()),
+          SafeArea(
+            top: false,
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 8,
+              ),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surface,
+                border: Border(
+                  top: BorderSide(
+                    color: Theme.of(context).dividerColor,
+                  ),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _messageController,
+                      minLines: 1,
+                      maxLines: 5,
+                      textCapitalization:
+                          TextCapitalization.sentences,
+                      onSubmitted: (_) => _sendMessage(),
+                      decoration: InputDecoration(
+                        hintText: 'Écrire un message...',
+                        filled: true,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(25),
+                          borderSide: BorderSide.none,
+                        ),
+                        contentPadding:
+                            const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 10,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  IconButton.filled(
+                    onPressed: _sending ? null : _sendMessage,
+                    icon: _sending
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.send),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
