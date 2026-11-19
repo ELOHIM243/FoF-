@@ -7,6 +7,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:video_player/video_player.dart';
 
+import 'data/status_repository.dart';
+
 class StatusEditorScreen extends StatefulWidget {
   const StatusEditorScreen({super.key});
 
@@ -18,6 +20,10 @@ class StatusEditorScreen extends StatefulWidget {
 class _StatusEditorScreenState extends State<StatusEditorScreen> {
   final ImagePicker _picker = ImagePicker();
   final AudioPlayer _audioPlayer = AudioPlayer();
+  final TextEditingController _captionController =
+      TextEditingController();
+
+  final StatusRepository _repository = StatusRepository();
 
   XFile? _media;
   String? _audioName;
@@ -153,6 +159,8 @@ class _StatusEditorScreenState extends State<StatusEditorScreen> {
       ),
     );
 
+    controller.dispose();
+
     if (value == null || value.isEmpty || !mounted) return;
 
     setState(() {
@@ -163,10 +171,87 @@ class _StatusEditorScreenState extends State<StatusEditorScreen> {
     });
   }
 
+  Future<void> _editCaption() async {
+    final controller = TextEditingController(
+      text: _captionController.text,
+    );
+
+    final value = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Description du statut'),
+        content: TextField(
+          controller: controller,
+          maxLength: 300,
+          maxLines: 4,
+          decoration: const InputDecoration(
+            hintText: 'Ajouter une description...',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Annuler'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(context, controller.text.trim()),
+            child: const Text('Enregistrer'),
+          ),
+        ],
+      ),
+    );
+
+    controller.dispose();
+
+    if (value != null && mounted) {
+      setState(() {
+        _captionController.text = value;
+      });
+    }
+  }
+
   void _addSticker(String sticker) {
     setState(() {
       _stickers.add(sticker);
     });
+  }
+
+  Future<void> _publishStatus() async {
+    if (_media == null) {
+      _showMessage('Choisis une photo ou une vidéo.');
+      return;
+    }
+
+    setState(() => _loading = true);
+
+    try {
+      final statusId = await _repository.publishStatus(
+        mediaPath: _media!.path,
+        isVideo: _isVideo,
+        caption: _captionController.text.trim().isEmpty
+            ? null
+            : _captionController.text.trim(),
+        editorData: {
+          'texts': _texts,
+          'stickers': _stickers,
+        },
+      );
+
+      if (!mounted) return;
+
+      _showMessage('Statut publié avec succès.');
+
+      Navigator.pop(context, statusId);
+    } catch (error) {
+      if (!mounted) return;
+
+      _showMessage('Publication impossible : $error');
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
   }
 
   void _showMessage(String message) {
@@ -181,8 +266,11 @@ class _StatusEditorScreenState extends State<StatusEditorScreen> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.add_photo_alternate_outlined,
-                size: 60, color: Colors.white70),
+            Icon(
+              Icons.add_photo_alternate_outlined,
+              size: 60,
+              color: Colors.white70,
+            ),
             SizedBox(height: 12),
             Text(
               'Choisis une photo ou une vidéo',
@@ -270,7 +358,7 @@ class _StatusEditorScreenState extends State<StatusEditorScreen> {
     VoidCallback action,
   ) {
     return InkWell(
-      onTap: action,
+      onTap: _loading ? null : action,
       borderRadius: BorderRadius.circular(12),
       child: Padding(
         padding: const EdgeInsets.all(12),
@@ -290,6 +378,7 @@ class _StatusEditorScreenState extends State<StatusEditorScreen> {
   void dispose() {
     _videoController?.dispose();
     _audioPlayer.dispose();
+    _captionController.dispose();
     super.dispose();
   }
 
@@ -303,12 +392,16 @@ class _StatusEditorScreenState extends State<StatusEditorScreen> {
         title: const Text('VOIR+ Studio'),
         actions: [
           TextButton(
-            onPressed: () {
-              _showMessage(
-                'La publication sera connectée à Supabase à l’étape suivante.',
-              );
-            },
-            child: const Text('Suivant'),
+            onPressed: _loading ? null : _publishStatus,
+            child: _loading
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                    ),
+                  )
+                : const Text('Publier'),
           ),
         ],
       ),
@@ -381,13 +474,22 @@ class _StatusEditorScreenState extends State<StatusEditorScreen> {
                   _pickAudio,
                 ),
                 _toolButton(
-                  Icons.auto_awesome,
-                  'Effets',
-                  () => _showMessage(
-                    'Les filtres avancés arrivent dans le prochain module.',
-                  ),
+                  Icons.description,
+                  'Description',
+                  _editCaption,
                 ),
               ],
+            ),
+
+          if (_captionController.text.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Text(
+                _captionController.text,
+                style: const TextStyle(color: Colors.white70),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
 
           if (_audioName != null)
@@ -418,4 +520,3 @@ class _StatusEditorScreenState extends State<StatusEditorScreen> {
     );
   }
 }
- 
