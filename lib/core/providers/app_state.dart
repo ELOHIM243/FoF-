@@ -1,8 +1,17 @@
+
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../storage/local_storage.dart';
 
 class AppState extends ChangeNotifier {
   final LocalStorage _storage;
+  final SupabaseClient _supabase = Supabase.instance.client;
+
+  StreamSubscription<AuthState>? _authSubscription;
+
   AppState(this._storage);
 
   bool _isLoggedIn = false;
@@ -19,40 +28,68 @@ class AppState extends ChangeNotifier {
   LocalStorage get storage => _storage;
 
   void init() {
-    _isLoggedIn = _storage.isLoggedIn;
-    _userName = _storage.userName;
-    _userPhone = _storage.userPhone;
+    _loadPreferences();
+
+    _updateSession(_supabase.auth.currentSession);
+
+    _authSubscription =
+        _supabase.auth.onAuthStateChange.listen((data) {
+      _updateSession(data.session);
+    });
+  }
+
+  void _loadPreferences() {
     _locale = Locale(_storage.localeCode);
-    final t = _storage.themeModeStr;
-    _themeMode = t == 'light' ? ThemeMode.light : (t == 'dark' ? ThemeMode.dark : ThemeMode.system);
+
+    final theme = _storage.themeModeStr;
+    _themeMode = theme == 'light'
+        ? ThemeMode.light
+        : theme == 'dark'
+            ? ThemeMode.dark
+            : ThemeMode.system;
+  }
+
+  void _updateSession(Session? session) {
+    _isLoggedIn = session != null;
+
+    final email = session?.user.email ?? '';
+    _userName = email.isNotEmpty ? email : '';
+    _userPhone = '';
+
     notifyListeners();
   }
 
+  // Compatibilité avec l'ancien écran de profil.
+  // Cette méthode ne crée pas de session artificielle.
   Future<void> login(String name, String phone) async {
-    _isLoggedIn = true;
+    if (_supabase.auth.currentUser == null) {
+      throw StateError('Aucun utilisateur Supabase connecté.');
+    }
+
     _userName = name;
     _userPhone = phone;
-    await _storage.setLoggedIn(true);
-    await _storage.setUserName(name);
-    await _storage.setUserPhone(phone);
     notifyListeners();
   }
 
   Future<void> logout() async {
-    _isLoggedIn = false;
-    await _storage.setLoggedIn(false);
+    await _supabase.auth.signOut();
+  }
+
+  Future<void> setLocale(Locale locale) async {
+    _locale = locale;
+    await _storage.setLocaleCode(locale.languageCode);
     notifyListeners();
   }
 
-  Future<void> setLocale(Locale l) async {
-    _locale = l;
-    await _storage.setLocaleCode(l.languageCode);
+  Future<void> setThemeMode(ThemeMode mode) async {
+    _themeMode = mode;
+    await _storage.setThemeMode(mode.name);
     notifyListeners();
   }
 
-  Future<void> setThemeMode(ThemeMode m) async {
-    _themeMode = m;
-    await _storage.setThemeMode(m.name);
-    notifyListeners();
+  @override
+  void dispose() {
+    _authSubscription?.cancel();
+    super.dispose();
   }
 }
