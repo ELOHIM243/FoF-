@@ -1,133 +1,185 @@
-import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import '../../core/l10n/l10n_ext.dart';
-import '../../core/providers/app_state.dart';
-import '../../core/theme/app_theme.dart';
-import '../../data/repositories/chat_repository.dart';
-import '../chat/chat_screen.dart';
-import '../settings/settings_screen.dart';
 
-class ChatsScreen extends StatefulWidget {
-  const ChatsScreen({super.key});
+import 'package:flutter/material.dart';
+
+import '../../data/models/conversation.dart';
+import '../../data/models/message.dart';
+import '../../data/repositories/chat_repository.dart';
+
+class ChatScreen extends StatefulWidget {
+  final Conversation conversation;
+  final ChatRepository repo;
+
+  const ChatScreen({
+    super.key,
+    required this.conversation,
+    required this.repo,
+  });
+
   @override
-  State<ChatsScreen> createState() => _ChatsScreenState();
+  State<ChatScreen> createState() => _ChatScreenState();
 }
 
-class _ChatsScreenState extends State<ChatsScreen> {
-  int _tab = 0;
-  late ChatRepository _repo;
-  bool _loading = true;
+class _ChatScreenState extends State<ChatScreen> {
+  final TextEditingController _controller =
+      TextEditingController();
+
+  late Future<List<Message>> _messagesFuture;
+  bool _sending = false;
 
   @override
   void initState() {
     super.initState();
-    _repo = ChatRepository();
-    _load();
+    _loadMessages();
   }
 
-  Future<void> _load() async {
-    setState(() => _loading = true);
-    await Future.delayed(const Duration(milliseconds: 300)); // Petit délai pour l'effet
-    if (mounted) setState(() => _loading = false);
+  void _loadMessages() {
+    _messagesFuture =
+        widget.repo.getMessages(widget.conversation.id);
   }
 
-  // Fonction pour afficher la fenêtre de création
-  void _showCreateDialog({required bool isGroup}) {
-    final controller = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(isGroup ? 'Nouveau Groupe' : 'Nouveau Contact'),
-        content: TextField(
-          controller: controller,
-          decoration: InputDecoration(hintText: isGroup ? 'Nom du groupe' : 'Nom du contact'),
+  Future<void> _sendMessage() async {
+    final text = _controller.text.trim();
+
+    if (text.isEmpty || _sending) return;
+
+    setState(() => _sending = true);
+
+    try {
+      await widget.repo.sendMessage(
+        widget.conversation.id,
+        text,
+      );
+
+      _controller.clear();
+
+      if (!mounted) return;
+
+      setState(() {
+        _loadMessages();
+      });
+    } catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Erreur d’envoi : $error'),
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Annuler'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final name = controller.text.trim();
-              if (name.isNotEmpty) {
-                if (isGroup) {
-                  await _repo.createGroup(name);
-                } else {
-                  await _repo.createContact(name);
-                }
-                if (context.mounted) Navigator.pop(context);
-                _load(); // Recharger la liste
-              }
-            },
-            child: const Text('Créer'),
-          ),
-        ],
-      ),
-    );
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _sending = false);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_tab == 1) return const SettingsScreen();
-    final l10n = context.l10n;
-
     return Scaffold(
       appBar: AppBar(
-        title: Text(l10n.chatsTitle),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.person_add),
-            tooltip: 'Ajouter un contact',
-            onPressed: () => _showCreateDialog(isGroup: false),
-          ),
-          IconButton(
-            icon: const Icon(Icons.group_add),
-            tooltip: 'Créer un groupe',
-            onPressed: () => _showCreateDialog(isGroup: true),
-          ),
-        ],
+        title: Text(widget.conversation.name),
       ),
-      body: _loading 
-          ? const Center(child: CircularProgressIndicator()) 
-          : FutureBuilder(
-              future: _repo.getConversations(),
-              builder: (context, snap) {
-                if (snap.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
+      body: Column(
+        children: [
+          Expanded(
+            child: FutureBuilder<List<Message>>(
+              future: _messagesFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState ==
+                    ConnectionState.waiting) {
+                  return const Center(
+                    child: CircularProgressIndicator(),
+                  );
                 }
-                if (snap.hasError) {
-                  return Center(child: Text('Erreur: ${snap.error}'));
+
+                if (snapshot.hasError) {
+                  return Center(
+                    child: Text(
+                      'Erreur : ${snapshot.error}',
+                    ),
+                  );
                 }
-                final convs = snap.data ?? [];
-                if (convs.isEmpty) {
-                  return const Center(child: Text('Aucune conversation. Ajoutez-en une !'));
+
+                final messages = snapshot.data ?? [];
+
+                if (messages.isEmpty) {
+                  return const Center(
+                    child: Text('Aucun message pour le moment.'),
+                  );
                 }
+
                 return ListView.builder(
-                  itemCount: convs.length,
-                  itemBuilder: (context, i) {
-                    final c = convs[i];
-                    return ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: c.isGroup ? AppColors.secondary : AppColors.primary,
-                        child: Icon(c.isGroup ? Icons.group : Icons.person, color: Colors.white),
+                  padding: const EdgeInsets.all(12),
+                  itemCount: messages.length,
+                  itemBuilder: (context, index) {
+                    final message = messages[index];
+
+                    return Align(
+                      alignment: message.isSentByMe
+                          ? Alignment.centerRight
+                          : Alignment.centerLeft,
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(
+                          vertical: 5,
+                        ),
+                        padding: const EdgeInsets.all(12),
+                        constraints: BoxConstraints(
+                          maxWidth:
+                              MediaQuery.of(context).size.width *
+                                  0.75,
+                        ),
+                        decoration: BoxDecoration(
+                          color: message.isSentByMe
+                              ? Colors.teal
+                              : Theme.of(context)
+                                  .colorScheme
+                                  .surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Text(
+                          message.text,
+                          style: TextStyle(
+                            color: message.isSentByMe
+                                ? Colors.white
+                                : null,
+                          ),
+                        ),
                       ),
-                      title: Text(c.name),
-                      subtitle: Text(c.isGroup ? 'Groupe' : 'Contact'),
-                      onTap: () {
-                        Navigator.push(context, MaterialPageRoute(builder: (_) => ChatScreen(conversation: c, repo: _repo)));
-                      },
                     );
                   },
                 );
               },
             ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _tab,
-        onDestinationSelected: (i) => setState(() => _tab = i),
-        destinations: [
-          NavigationDestination(icon: const Icon(Icons.chat), label: l10n.chatsTabChats),
-          NavigationDestination(icon: const Icon(Icons.settings), label: l10n.chatsTabSettings),
+          ),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(10),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _controller,
+                      decoration: const InputDecoration(
+                        hintText: 'Écrire un message...',
+                        border: OutlineInputBorder(),
+                      ),
+                      onSubmitted: (_) => _sendMessage(),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed:
+                        _sending ? null : _sendMessage,
+                    icon: const Icon(Icons.send),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
