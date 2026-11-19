@@ -29,7 +29,7 @@ class ChatRepository {
     }).toList();
   }
 
-  // Créer un contact (conversation simple)
+  // Créer un contact
   Future<void> createContact(String name) async {
     final cleanName = name.trim();
 
@@ -81,7 +81,7 @@ class ChatRepository {
     }).toList();
   }
 
-  // Envoyer un message avec le véritable identifiant Supabase
+  // Envoyer un message
   Future<void> sendMessage(
     String convId,
     String text,
@@ -107,10 +107,8 @@ class ChatRepository {
     });
   }
 
-  // Les accusés de lecture nécessitent encore une structure
-  // de base de données dédiée.
+  // Accusés de lecture
   Future<void> markAsRead(String convId) async {
-    // À implémenter après la création du système de lecture.
+    // À implémenter avec une table de lecture dédiée.
   }
 }
- 
