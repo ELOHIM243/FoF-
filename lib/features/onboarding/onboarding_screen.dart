@@ -13,11 +13,15 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
 
+  final SupabaseClient _supabase = Supabase.instance.client;
+
+  static const String _redirectUrl =
+      'com.elohim243.fof://login-callback/';
+
   bool _isLogin = true;
   bool _isLoading = false;
+  bool _isGoogleLoading = false;
   bool _obscurePassword = true;
-
-  final SupabaseClient _supabase = Supabase.instance.client;
 
   @override
   void dispose() {
@@ -36,7 +40,9 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     }
 
     if (password.length < 6) {
-      _showMessage('Le mot de passe doit contenir au moins 6 caractères.');
+      _showMessage(
+        'Le mot de passe doit contenir au moins 6 caractères.',
+      );
       return;
     }
 
@@ -59,26 +65,46 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
         );
 
         if (mounted) {
-          if (response.session == null) {
-            _showMessage(
-              'Compte créé ! Vérifie ta boîte e-mail pour confirmer ton adresse.',
-            );
-          } else {
-            _showMessage('Compte créé avec succès !');
-          }
+          _showMessage(
+            response.session == null
+                ? 'Compte créé ! Vérifie ta boîte e-mail.'
+                : 'Compte créé avec succès !',
+          );
         }
       }
     } on AuthException catch (error) {
-      if (mounted) {
-        _showMessage(error.message);
-      }
+      if (mounted) _showMessage(error.message);
     } catch (error) {
       if (mounted) {
         _showMessage('Une erreur est survenue. Réessaie.');
       }
     } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _signInWithGoogle() async {
+    if (_isLoading || _isGoogleLoading) return;
+
+    setState(() => _isGoogleLoading = true);
+
+    try {
+      await _supabase.auth.signInWithOAuth(
+        OAuthProvider.google,
+        redirectTo: _redirectUrl,
+        authScreenLaunchMode: LaunchMode.externalApplication,
+      );
+    } on AuthException catch (error) {
+      if (mounted) _showMessage(error.message);
+    } catch (error) {
       if (mounted) {
-        setState(() => _isLoading = false);
+        _showMessage(
+          'Impossible de lancer la connexion Google. Vérifie Internet et réessaie.',
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isGoogleLoading = false);
       }
     }
   }
@@ -105,6 +131,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   color: Colors.blue,
                 ),
                 const SizedBox(height: 20),
+
                 const Text(
                   'FOF',
                   style: TextStyle(
@@ -112,13 +139,16 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     fontWeight: FontWeight.bold,
                   ),
                 ),
+
                 const SizedBox(height: 8),
+
                 Text(
                   _isLogin
                       ? 'Connecte-toi à ton compte'
                       : 'Crée ton compte FOF',
                   style: const TextStyle(fontSize: 18),
                 ),
+
                 const SizedBox(height: 35),
 
                 TextField(
@@ -162,25 +192,72 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   width: double.infinity,
                   height: 52,
                   child: ElevatedButton(
-                    onPressed: _isLoading ? null : _authenticate,
+                    onPressed:
+                        _isLoading || _isGoogleLoading
+                            ? null
+                            : _authenticate,
                     child: _isLoading
                         ? const CircularProgressIndicator()
                         : Text(
-                            _isLogin ? 'Se connecter' : 'Créer un compte',
+                            _isLogin
+                                ? 'Se connecter'
+                                : 'Créer un compte',
                           ),
                   ),
                 ),
 
                 const SizedBox(height: 18),
 
+                Row(
+                  children: const [
+                    Expanded(child: Divider()),
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 12),
+                      child: Text('OU'),
+                    ),
+                    Expanded(child: Divider()),
+                  ],
+                ),
+
+                const SizedBox(height: 18),
+
+                SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: OutlinedButton.icon(
+                    onPressed:
+                        _isLoading || _isGoogleLoading
+                            ? null
+                            : _signInWithGoogle,
+                    icon: _isGoogleLoading
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                            ),
+                          )
+                        : const Icon(
+                            Icons.g_mobiledata,
+                            size: 30,
+                          ),
+                    label: const Text(
+                      'Continuer avec Google',
+                    ),
+                  ),
+                ),
+
+                const SizedBox(height: 18),
+
                 TextButton(
-                  onPressed: _isLoading
-                      ? null
-                      : () {
-                          setState(() {
-                            _isLogin = !_isLogin;
-                          });
-                        },
+                  onPressed:
+                      _isLoading || _isGoogleLoading
+                          ? null
+                          : () {
+                              setState(() {
+                                _isLogin = !_isLogin;
+                              });
+                            },
                   child: Text(
                     _isLogin
                         ? 'Pas encore de compte ? Inscris-toi'
