@@ -1,3 +1,4 @@
+
 name: Build FOF APK
 
 on:
@@ -8,6 +9,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -30,7 +32,6 @@ jobs:
       - name: Copy code and resources
         run: |
           cp -r lib pubspec.yaml l10n.yaml fof_app/
-          # Copie les dossiers optionnels s'ils existent
           for dir in assets fonts; do
             if [ -d "$dir" ]; then cp -r "$dir" fof_app/; fi
           done
@@ -47,12 +48,31 @@ jobs:
           sed -i -E 's/compileSdk(Version)?[ =]+flutter\.compileSdkVersion/compileSdkVersion 34/' build.gradle
           sed -i -E 's/minSdk(Version)?[ =]+flutter\.minSdkVersion/minSdkVersion 21/' build.gradle
           sed -i -E 's/targetSdk(Version)?[ =]+flutter\.targetSdkVersion/targetSdkVersion 34/' build.gradle
-          echo "--- Vérification ---"
           grep -nE "compileSdk|minSdk|targetSdk" build.gradle
 
       - name: Build APK
         working-directory: fof_app
         run: flutter build apk --debug
+
+      - name: Display SHA-1 fingerprint
+        run: |
+          mkdir -p ~/.android
+          if [ ! -f ~/.android/debug.keystore ]; then
+            keytool -genkeypair -v \
+              -keystore ~/.android/debug.keystore \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          fi
+          keytool -list -v \
+            -keystore ~/.android/debug.keystore \
+            -alias androiddebugkey \
+            -storepass android \
+            -keypass android
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
