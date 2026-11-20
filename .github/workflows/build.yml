@@ -1,15 +1,48 @@
 
+name: Build FOF APK
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.22.0'
+          channel: stable
+          cache: true
+
+      - name: Create Android project
+        run: |
+          flutter create \
+            --platforms=android \
+            --org com.elohim243 \
+            --project-name fof \
+            fof_app
+
       - name: Configure Android v2 embedding
         working-directory: fof_app
         run: |
           set -euo pipefail
 
-          test -f android/app/src/main/AndroidManifest.xml || {
-            echo "Android introuvable."
-            exit 1
-          }
+          test -f android/app/src/main/AndroidManifest.xml
 
-          # Supprimer les anciennes activités
           find android/app/src/main -name 'MainActivity.*' -delete
 
           mkdir -p android/app/src/main/kotlin/com/elohim243/fof
@@ -27,15 +60,15 @@
 
           ANDROID = "http://schemas.android.com/apk/res/android"
           ET.register_namespace("android", ANDROID)
-          ET.register_namespace("tools", "http://schemas.android.com/tools")
           ns = "{" + ANDROID + "}"
 
           path = "android/app/src/main/AndroidManifest.xml"
           tree = ET.parse(path)
-          app = tree.getroot().find("application")
+          root = tree.getroot()
+          app = root.find("application")
 
           if app is None:
-              raise RuntimeError("Balise application introuvable")
+              raise RuntimeError("Application introuvable")
 
           if app.get(ns + "name") == "io.flutter.app.FlutterApplication":
               app.set(ns + "name", "${applicationName}")
@@ -49,24 +82,189 @@
 
           ET.SubElement(app, "meta-data", {
               ns + "name": "flutterEmbedding",
-              ns + "value": "2",
+              ns + "value": "2"
           })
 
           tree.write(path, encoding="utf-8", xml_declaration=True)
 
-          # Vérification
           app = ET.parse(path).getroot().find("application")
-
           assert app is not None
           assert app.get(ns + "name") != "io.flutter.app.FlutterApplication"
 
-          meta = [
-              m for m in app.findall("meta-data")
-              if m.get(ns + "name") == "flutterEmbedding"
+          metadata = [
+              item for item in app.findall("meta-data")
+              if item.get(ns + "name") == "flutterEmbedding"
           ]
 
-          assert len(meta) == 1
-          assert meta[0].get(ns + "value") == "2"
+          assert len(metadata) == 1
+          assert metadata[0].get(ns + "value") == "2"
 
-          print("VERIFICATION REUSSIE : Android v2")
+          print("ANDROID V2 : VERIFICATION REUSSIE")
           PY
+
+      - name: Configure Google OAuth deep link
+        working-directory: fof_app
+        run: |
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+
+          path = "android/app/src/main/AndroidManifest.xml"
+          tree = ET.parse(path)
+          root = tree.getroot()
+
+          ns = "{http://schemas.android.com/apk/res/android}"
+
+          activity = None
+
+          for item in root.iter("activity"):
+              if item.get(ns + "name", "").endswith("MainActivity"):
+                  activity = item
+                  break
+
+          if activity is None:
+              raise RuntimeError("MainActivity introuvable")
+
+          exists = False
+
+          for intent in activity.findall("intent-filter"):
+              for data in intent.findall("data"):
+                  if (
+                      data.get(ns + "scheme") == "com.elohim243.fof"
+                      and data.get(ns + "host") == "login-callback"
+                  ):
+                      exists = True
+
+          if not exists:
+              intent = ET.SubElement(activity, "intent-filter")
+
+              ET.SubElement(intent, "action", {
+                  ns + "name": "android.intent.action.VIEW"
+              })
+
+              ET.SubElement(intent, "category", {
+                  ns + "name": "android.intent.category.DEFAULT"
+              })
+
+              ET.SubElement(intent, "category", {
+                  ns + "name": "android.intent.category.BROWSABLE"
+              })
+
+              ET.SubElement(intent, "data", {
+                  ns + "scheme": "com.elohim243.fof",
+                  ns + "host": "login-callback"
+              })
+
+          tree.write(path, encoding="utf-8", xml_declaration=True)
+
+          print("GOOGLE OAUTH : DEEP LINK CONFIGURE")
+          PY
+
+      - name: Copy FOF source code
+        run: |
+          cp -r lib pubspec.yaml l10n.yaml fof_app/
+
+          for dir in assets fonts; do
+            if [ -d "$dir" ]; then
+              cp -r "$dir" fof_app/
+            fi
+          done
+
+      - name: Install dependencies
+        working-directory: fof_app
+        run: |
+          flutter pub get
+          flutter gen-l10n
+
+      - name: Detect old Android plugins
+        working-directory: fof_app
+        run: |
+          python3 - <<'PY'
+          import json
+          import pathlib
+          import re
+
+          config = pathlib.Path(".flutter-plugins-dependencies")
+          data = json.loads(config.read_text())
+
+          plugins = data.get("plugins", {}).get("android", [])
+
+          patterns = [
+              re.compile(r"io\.flutter\.app\."),
+              re.compile(r"PluginRegistry\.Registrar"),
+              re.compile(r"registerWith\s*\(\s*PluginRegistry")
+          ]
+
+          found = False
+
+          for plugin in plugins:
+              name = plugin.get("name", "inconnu")
+              path = pathlib.Path(plugin["path"]) / "android"
+
+              if not path.exists():
+                  continue
+
+              for file in path.rglob("*"):
+                  if file.suffix not in (".java", ".kt"):
+                      continue
+
+                  content = file.read_text(errors="ignore")
+
+                  if any(p.search(content) for p in patterns):
+                      print("PLUGIN SUSPECT :", name)
+                      print("FICHIER :", file)
+                      found = True
+
+          if not found:
+              print("Aucune ancienne référence détectée.")
+          PY
+
+      - name: Verify Android configuration
+        working-directory: fof_app
+        run: |
+          grep -n "applicationId" android/app/build.gradle
+          grep -n "namespace" android/app/build.gradle
+          grep -n "flutterEmbedding" android/app/src/main/AndroidManifest.xml
+          grep -n "login-callback" android/app/src/main/AndroidManifest.xml
+
+      - name: Configure Android SDK
+        working-directory: fof_app/android/app
+        run: |
+          sed -i -E 's/compileSdk(Version)?[ =]+flutter\.compileSdkVersion/compileSdkVersion 34/' build.gradle
+          sed -i -E 's/minSdk(Version)?[ =]+flutter\.minSdkVersion/minSdkVersion 21/' build.gradle
+          sed -i -E 's/targetSdk(Version)?[ =]+flutter\.targetSdkVersion/targetSdkVersion 34/' build.gradle
+
+          grep -nE "compileSdk|minSdk|targetSdk" build.gradle
+
+      - name: Clean Flutter project
+        working-directory: fof_app
+        run: flutter clean
+
+      - name: Build APK
+        working-directory: fof_app
+        run: flutter build apk --debug
+
+      - name: Display SHA-1 fingerprint
+        run: |
+          mkdir -p ~/.android
+
+          keytool -genkeypair -v \
+            -keystore ~/.android/debug.keystore \
+            -storepass android \
+            -alias androiddebugkey \
+            -keypass android \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+
+          keytool -list -v \
+            -keystore ~/.android/debug.keystore \
+            -alias androiddebugkey \
+            -storepass android
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: fof-apk
+          path: fof_app/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
