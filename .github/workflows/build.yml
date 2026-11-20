@@ -65,7 +65,6 @@ jobs:
           })
 
           tree.write(path, encoding="utf-8", xml_declaration=True)
-          print("Android v2 embedding configuré.")
           PY
 
       - name: Configure Google OAuth deep link
@@ -105,7 +104,6 @@ jobs:
           })
 
           tree.write(path, encoding="utf-8", xml_declaration=True)
-          print("Google OAuth deep link configuré.")
           PY
 
       - name: Copy code and resources
@@ -123,6 +121,58 @@ jobs:
         run: |
           flutter pub get
           flutter gen-l10n
+
+      - name: Detect obsolete Android plugins
+        working-directory: fof_app
+        run: |
+          python3 - <<'PY'
+          import json
+          import pathlib
+          import re
+
+          config = pathlib.Path(".flutter-plugins-dependencies")
+
+          if not config.exists():
+              print("Fichier des plugins introuvable.")
+              raise SystemExit(0)
+
+          data = json.loads(config.read_text())
+          plugins = data.get("plugins", {}).get("android", [])
+
+          patterns = [
+              re.compile(r"io\.flutter\.app\."),
+              re.compile(r"PluginRegistry\.Registrar"),
+              re.compile(r"registerWith\s*\(\s*PluginRegistry")
+          ]
+
+          found = False
+
+          for plugin in plugins:
+              name = plugin.get("name", "inconnu")
+              path = pathlib.Path(plugin.get("path", "")) / "android"
+
+              if not path.exists():
+                  continue
+
+              for file in path.rglob("*"):
+                  if file.suffix not in (".java", ".kt", ".xml", ".gradle"):
+                      continue
+
+                  try:
+                      content = file.read_text(errors="ignore")
+                  except OSError:
+                      continue
+
+                  for pattern in patterns:
+                      if pattern.search(content):
+                          print(f"PLUGIN SUSPECT : {name}")
+                          print(f"FICHIER : {file}")
+                          found = True
+                          break
+
+          if not found:
+              print("Aucune ancienne référence détectée par cette recherche.")
+          PY
 
       - name: Verify Android configuration
         working-directory: fof_app
