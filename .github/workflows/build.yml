@@ -29,6 +29,46 @@ jobs:
       - name: Create Flutter project
         run: flutter create --org com.elohim243 --project-name fof fof_app
 
+      - name: Configure Google OAuth deep link
+        working-directory: fof_app
+        run: |
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+
+          path = "android/app/src/main/AndroidManifest.xml"
+          tree = ET.parse(path)
+          root = tree.getroot()
+
+          ns = "{http://schemas.android.com/apk/res/android}"
+
+          activity = None
+          for item in root.iter("activity"):
+              if item.get(ns + "name", "").endswith("MainActivity"):
+                  activity = item
+                  break
+
+          if activity is None:
+              raise RuntimeError("MainActivity introuvable")
+
+          intent = ET.SubElement(activity, "intent-filter")
+          ET.SubElement(intent, "action", {
+              ns + "name": "android.intent.action.VIEW"
+          })
+          ET.SubElement(intent, "category", {
+              ns + "name": "android.intent.category.DEFAULT"
+          })
+          ET.SubElement(intent, "category", {
+              ns + "name": "android.intent.category.BROWSABLE"
+          })
+          ET.SubElement(intent, "data", {
+              ns + "scheme": "com.elohim243.fof",
+              ns + "host": "login-callback"
+          })
+
+          tree.write(path, encoding="utf-8", xml_declaration=True)
+          print("Google OAuth deep link configuré.")
+          PY
+
       - name: Copy code and resources
         run: |
           cp -r lib pubspec.yaml l10n.yaml fof_app/
@@ -55,6 +95,11 @@ jobs:
           sed -i -E 's/minSdk(Version)?[ =]+flutter\.minSdkVersion/minSdkVersion 21/' build.gradle
           sed -i -E 's/targetSdk(Version)?[ =]+flutter\.targetSdkVersion/targetSdkVersion 34/' build.gradle
           grep -nE "compileSdk|minSdk|targetSdk" build.gradle
+
+      - name: Verify Google OAuth deep link
+        working-directory: fof_app
+        run: |
+          grep -n "login-callback" android/app/src/main/AndroidManifest.xml
 
       - name: Build APK
         working-directory: fof_app
