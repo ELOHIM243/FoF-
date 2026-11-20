@@ -29,6 +29,45 @@ jobs:
       - name: Create Flutter project
         run: flutter create --org com.elohim243 --project-name fof fof_app
 
+      - name: Configure Android v2 embedding
+        working-directory: fof_app
+        run: |
+          mkdir -p android/app/src/main/kotlin/com/elohim243/fof
+
+          cat > android/app/src/main/kotlin/com/elohim243/fof/MainActivity.kt <<'EOF'
+          package com.elohim243.fof
+
+          import io.flutter.embedding.android.FlutterActivity
+
+          class MainActivity : FlutterActivity()
+          EOF
+
+          python3 - <<'PY'
+          import xml.etree.ElementTree as ET
+
+          path = "android/app/src/main/AndroidManifest.xml"
+          tree = ET.parse(path)
+          root = tree.getroot()
+
+          ns = "{http://schemas.android.com/apk/res/android}"
+          app = root.find("application")
+
+          if app is None:
+              raise RuntimeError("Application introuvable")
+
+          for item in list(app.findall("meta-data")):
+              if item.get(ns + "name") == "flutterEmbedding":
+                  app.remove(item)
+
+          ET.SubElement(app, "meta-data", {
+              ns + "name": "flutterEmbedding",
+              ns + "value": "2"
+          })
+
+          tree.write(path, encoding="utf-8", xml_declaration=True)
+          print("Android v2 embedding configuré.")
+          PY
+
       - name: Configure Google OAuth deep link
         working-directory: fof_app
         run: |
@@ -72,8 +111,11 @@ jobs:
       - name: Copy code and resources
         run: |
           cp -r lib pubspec.yaml l10n.yaml fof_app/
+
           for dir in assets fonts; do
-            if [ -d "$dir" ]; then cp -r "$dir" fof_app/; fi
+            if [ -d "$dir" ]; then
+              cp -r "$dir" fof_app/
+            fi
           done
 
       - name: Install dependencies
@@ -82,11 +124,13 @@ jobs:
           flutter pub get
           flutter gen-l10n
 
-      - name: Verify Android package
+      - name: Verify Android configuration
         working-directory: fof_app
         run: |
           grep -n "applicationId" android/app/build.gradle
           grep -n "namespace" android/app/build.gradle
+          grep -n "flutterEmbedding" android/app/src/main/AndroidManifest.xml
+          grep -n "login-callback" android/app/src/main/AndroidManifest.xml
 
       - name: Force Android SDK versions
         working-directory: fof_app/android/app
@@ -96,11 +140,6 @@ jobs:
           sed -i -E 's/targetSdk(Version)?[ =]+flutter\.targetSdkVersion/targetSdkVersion 34/' build.gradle
           grep -nE "compileSdk|minSdk|targetSdk" build.gradle
 
-      - name: Verify Google OAuth deep link
-        working-directory: fof_app
-        run: |
-          grep -n "login-callback" android/app/src/main/AndroidManifest.xml
-
       - name: Build APK
         working-directory: fof_app
         run: flutter build apk --debug
@@ -108,6 +147,7 @@ jobs:
       - name: Display SHA-1 fingerprint
         run: |
           mkdir -p ~/.android
+
           if [ ! -f ~/.android/debug.keystore ]; then
             keytool -genkeypair -v \
               -keystore ~/.android/debug.keystore \
@@ -119,6 +159,7 @@ jobs:
               -validity 10000 \
               -dname "CN=Android Debug,O=Android,C=US"
           fi
+
           keytool -list -v \
             -keystore ~/.android/debug.keystore \
             -alias androiddebugkey \
