@@ -1,34 +1,4 @@
 
-name: Build FOF APK
-
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '17'
-
-      - name: Setup Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.22.0'
-          channel: 'stable'
-          cache: true
-
-      - name: Create Flutter project
-        run: flutter create --org com.elohim243 --project-name fof fof_app
-
       - name: Configure Android v2 embedding
         working-directory: fof_app
         run: |
@@ -53,10 +23,20 @@ jobs:
           app = root.find("application")
 
           if app is None:
-              raise RuntimeError("Application introuvable")
+              raise RuntimeError("Balise application introuvable")
+
+          old_name = app.get(ns + "name")
+
+          if old_name == "io.flutter.app.FlutterApplication":
+              app.set(ns + "name", "\${applicationName}")
 
           for item in list(app.findall("meta-data")):
-              if item.get(ns + "name") == "flutterEmbedding":
+              name = item.get(ns + "name")
+
+              if name == "flutterEmbedding":
+                  app.remove(item)
+
+              if name == "io.flutter.app.android.SplashScreenUntilFirstFrame":
                   app.remove(item)
 
           ET.SubElement(app, "meta-data", {
@@ -65,160 +45,20 @@ jobs:
           })
 
           tree.write(path, encoding="utf-8", xml_declaration=True)
-          PY
 
-      - name: Configure Google OAuth deep link
-        working-directory: fof_app
-        run: |
-          python3 - <<'PY'
-          import xml.etree.ElementTree as ET
+          check = ET.parse(path).getroot()
+          application = check.find("application")
 
-          path = "android/app/src/main/AndroidManifest.xml"
-          tree = ET.parse(path)
-          root = tree.getroot()
+          assert application is not None
+          assert application.get(ns + "name") != "io.flutter.app.FlutterApplication"
 
-          ns = "{http://schemas.android.com/apk/res/android}"
-
-          activity = None
-          for item in root.iter("activity"):
-              if item.get(ns + "name", "").endswith("MainActivity"):
-                  activity = item
-                  break
-
-          if activity is None:
-              raise RuntimeError("MainActivity introuvable")
-
-          intent = ET.SubElement(activity, "intent-filter")
-          ET.SubElement(intent, "action", {
-              ns + "name": "android.intent.action.VIEW"
-          })
-          ET.SubElement(intent, "category", {
-              ns + "name": "android.intent.category.DEFAULT"
-          })
-          ET.SubElement(intent, "category", {
-              ns + "name": "android.intent.category.BROWSABLE"
-          })
-          ET.SubElement(intent, "data", {
-              ns + "scheme": "com.elohim243.fof",
-              ns + "host": "login-callback"
-          })
-
-          tree.write(path, encoding="utf-8", xml_declaration=True)
-          PY
-
-      - name: Copy code and resources
-        run: |
-          cp -r lib pubspec.yaml l10n.yaml fof_app/
-
-          for dir in assets fonts; do
-            if [ -d "$dir" ]; then
-              cp -r "$dir" fof_app/
-            fi
-          done
-
-      - name: Install dependencies
-        working-directory: fof_app
-        run: |
-          flutter pub get
-          flutter gen-l10n
-
-      - name: Detect obsolete Android plugins
-        working-directory: fof_app
-        run: |
-          python3 - <<'PY'
-          import json
-          import pathlib
-          import re
-
-          config = pathlib.Path(".flutter-plugins-dependencies")
-
-          if not config.exists():
-              print("Fichier des plugins introuvable.")
-              raise SystemExit(0)
-
-          data = json.loads(config.read_text())
-          plugins = data.get("plugins", {}).get("android", [])
-
-          patterns = [
-              re.compile(r"io\.flutter\.app\."),
-              re.compile(r"PluginRegistry\.Registrar"),
-              re.compile(r"registerWith\s*\(\s*PluginRegistry")
+          metadata = [
+              item for item in application.findall("meta-data")
+              if item.get(ns + "name") == "flutterEmbedding"
           ]
 
-          found = False
+          assert len(metadata) == 1
+          assert metadata[0].get(ns + "value") == "2"
 
-          for plugin in plugins:
-              name = plugin.get("name", "inconnu")
-              path = pathlib.Path(plugin.get("path", "")) / "android"
-
-              if not path.exists():
-                  continue
-
-              for file in path.rglob("*"):
-                  if file.suffix not in (".java", ".kt", ".xml", ".gradle"):
-                      continue
-
-                  try:
-                      content = file.read_text(errors="ignore")
-                  except OSError:
-                      continue
-
-                  for pattern in patterns:
-                      if pattern.search(content):
-                          print(f"PLUGIN SUSPECT : {name}")
-                          print(f"FICHIER : {file}")
-                          found = True
-                          break
-
-          if not found:
-              print("Aucune ancienne référence détectée par cette recherche.")
+          print("VERIFICATION REUSSIE : Android v2")
           PY
-
-      - name: Verify Android configuration
-        working-directory: fof_app
-        run: |
-          grep -n "applicationId" android/app/build.gradle
-          grep -n "namespace" android/app/build.gradle
-          grep -n "flutterEmbedding" android/app/src/main/AndroidManifest.xml
-          grep -n "login-callback" android/app/src/main/AndroidManifest.xml
-
-      - name: Force Android SDK versions
-        working-directory: fof_app/android/app
-        run: |
-          sed -i -E 's/compileSdk(Version)?[ =]+flutter\.compileSdkVersion/compileSdkVersion 34/' build.gradle
-          sed -i -E 's/minSdk(Version)?[ =]+flutter\.minSdkVersion/minSdkVersion 21/' build.gradle
-          sed -i -E 's/targetSdk(Version)?[ =]+flutter\.targetSdkVersion/targetSdkVersion 34/' build.gradle
-          grep -nE "compileSdk|minSdk|targetSdk" build.gradle
-
-      - name: Build APK
-        working-directory: fof_app
-        run: flutter build apk --debug
-
-      - name: Display SHA-1 fingerprint
-        run: |
-          mkdir -p ~/.android
-
-          if [ ! -f ~/.android/debug.keystore ]; then
-            keytool -genkeypair -v \
-              -keystore ~/.android/debug.keystore \
-              -storepass android \
-              -alias androiddebugkey \
-              -keypass android \
-              -keyalg RSA \
-              -keysize 2048 \
-              -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US"
-          fi
-
-          keytool -list -v \
-            -keystore ~/.android/debug.keystore \
-            -alias androiddebugkey \
-            -storepass android \
-            -keypass android
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: fof-apk
-          path: fof_app/build/app/outputs/flutter-apk/app-debug.apk
-          if-no-files-found: error
