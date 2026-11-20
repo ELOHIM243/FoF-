@@ -2,6 +2,16 @@
       - name: Configure Android v2 embedding
         working-directory: fof_app
         run: |
+          set -euo pipefail
+
+          test -f android/app/src/main/AndroidManifest.xml || {
+            echo "Android introuvable."
+            exit 1
+          }
+
+          # Supprimer les anciennes activités
+          find android/app/src/main -name 'MainActivity.*' -delete
+
           mkdir -p android/app/src/main/kotlin/com/elohim243/fof
 
           cat > android/app/src/main/kotlin/com/elohim243/fof/MainActivity.kt <<'EOF'
@@ -15,50 +25,48 @@
           python3 - <<'PY'
           import xml.etree.ElementTree as ET
 
+          ANDROID = "http://schemas.android.com/apk/res/android"
+          ET.register_namespace("android", ANDROID)
+          ET.register_namespace("tools", "http://schemas.android.com/tools")
+          ns = "{" + ANDROID + "}"
+
           path = "android/app/src/main/AndroidManifest.xml"
           tree = ET.parse(path)
-          root = tree.getroot()
-
-          ns = "{http://schemas.android.com/apk/res/android}"
-          app = root.find("application")
+          app = tree.getroot().find("application")
 
           if app is None:
               raise RuntimeError("Balise application introuvable")
 
-          old_name = app.get(ns + "name")
-
-          if old_name == "io.flutter.app.FlutterApplication":
-              app.set(ns + "name", "\${applicationName}")
+          if app.get(ns + "name") == "io.flutter.app.FlutterApplication":
+              app.set(ns + "name", "${applicationName}")
 
           for item in list(app.findall("meta-data")):
-              name = item.get(ns + "name")
-
-              if name == "flutterEmbedding":
-                  app.remove(item)
-
-              if name == "io.flutter.app.android.SplashScreenUntilFirstFrame":
+              if item.get(ns + "name") in (
+                  "flutterEmbedding",
+                  "io.flutter.app.android.SplashScreenUntilFirstFrame",
+              ):
                   app.remove(item)
 
           ET.SubElement(app, "meta-data", {
               ns + "name": "flutterEmbedding",
-              ns + "value": "2"
+              ns + "value": "2",
           })
 
           tree.write(path, encoding="utf-8", xml_declaration=True)
 
-          check = ET.parse(path).getroot()
-          application = check.find("application")
+          # Vérification
+          app = ET.parse(path).getroot().find("application")
 
-          assert application is not None
-          assert application.get(ns + "name") != "io.flutter.app.FlutterApplication"
+          assert app is not None
+          assert app.get(ns + "name") != "io.flutter.app.FlutterApplication"
 
-          metadata = [
-              item for item in application.findall("meta-data")
-              if item.get(ns + "name") == "flutterEmbedding"
+          meta = [
+              m for m in app.findall("meta-data")
+              if m.get(ns + "name") == "flutterEmbedding"
           ]
 
-          assert len(metadata) == 1
-          assert metadata[0].get(ns + "value") == "2"
+          assert len(meta) == 1
+          assert meta[0].get(ns + "value") == "2"
 
           print("VERIFICATION REUSSIE : Android v2")
           PY
