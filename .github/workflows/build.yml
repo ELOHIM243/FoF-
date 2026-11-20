@@ -27,7 +27,7 @@ jobs:
           cache: true
 
       - name: Create Flutter project
-        run: flutter create fof_app
+        run: flutter create --org com.elohim243 --project-name fof_app fof_app
 
       - name: Copy code and resources
         run: |
@@ -41,6 +41,12 @@ jobs:
         run: |
           flutter pub get
           flutter gen-l10n
+
+      - name: Verify Android package
+        working-directory: fof_app
+        run: |
+          grep -n "applicationId" android/app/build.gradle
+          grep -n "namespace" android/app/build.gradle
 
       - name: Force Android SDK versions
         working-directory: fof_app/android/app
