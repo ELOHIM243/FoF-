@@ -27,7 +27,7 @@ jobs:
           cache: true
 
       - name: Create Flutter project
-        run: flutter create --org com.elohim243 --project-name fof_app fof_app
+        run: flutter create --org com.elohim243 --project-name fof fof_app
 
       - name: Copy code and resources
         run: |
